@@ -10,12 +10,14 @@ def aggregate_real_estate_data(base_dir_path: str, output_path: str):
     """
     base_dir = Path(base_dir_path)
     annual_aggregations = []
-
     for year_folder in sorted(base_dir.iterdir()):
+        if not year_folder.is_dir(): 
+            continue
+        
         year = int(year_folder.name.split('_')[-1][:4])
 
-        posli_file = next(year_folder.glob('*POSLI*.csv'), None)
-        zemljisca_file = next(year_folder.glob('*ZEMLJISCA*.csv'), None)
+        posli_file = next(year_folder.glob('*POSLI*.csv'))
+        zemljisca_file = next(year_folder.glob('*ZEMLJISCA*.csv'))
 
         df_posli = pd.read_csv(posli_file)
         df_zemljisca = pd.read_csv(zemljisca_file)
@@ -28,7 +30,6 @@ def aggregate_real_estate_data(base_dir_path: str, output_path: str):
             .sum()
             .rename(columns={'POGODBENA_CENA_ODSKODNINA': 'TOTAL_VOLUME'})
         )
-
         agg['YEAR'] = year
         annual_aggregations.append(agg)
 
@@ -37,6 +38,7 @@ def aggregate_real_estate_data(base_dir_path: str, output_path: str):
     result_df.to_csv(output_path, index=False)
     print(f"Aggregated data saved to: {output_path}")
     return result_df
+
 
 if __name__ == "__main__":
     aggregated_df = aggregate_real_estate_data(
