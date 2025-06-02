@@ -2,6 +2,7 @@ import pandas as pd
 from pathlib import Path
 
 
+
 def aggregate_real_estate_data(base_dir_path: str, output_path: str):
     """
     Processes yearly folders under `base_dir_path`, merges 'POSLI' and 'ZEMLJISCA' CSVs
