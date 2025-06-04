@@ -36,20 +36,32 @@ def compute_changes(pivot):
             changes[y] = pivot[y] - pivot[years[i-1]]
     return changes
 
-def morans_i(values, G):
+def morans_i(values, G, permutations=999, seed=42):
+    rng = np.random.default_rng(seed)
     x = values.values
-    n = len(x)
     w = nx.to_numpy_array(G, nodelist=values.index)
-    w_sum = w.sum()
     x_mean = np.nanmean(x)
     diff = x - x_mean
-    num = 0
-    for i in range(n):
-        for j in range(n):
-            if not np.isnan(diff[i]) and not np.isnan(diff[j]):
-                num += w[i,j] * diff[i] * diff[j]
-    den = np.nansum(diff**2)
-    return (n / w_sum) * num / den
+    
+    valid = ~np.isnan(diff)
+    diff_valid = diff[valid]
+    w_valid = w[np.ix_(valid, valid)]
+    
+    num = np.sum(w_valid * np.outer(diff_valid, diff_valid))
+    den = np.sum(diff_valid ** 2)
+    observed_I = (len(diff_valid) / w_valid.sum()) * (num / den)
+    
+    permuted_Is = []
+    for _ in range(permutations):
+        permuted = rng.permutation(diff_valid)
+        num_perm = np.sum(w_valid * np.outer(permuted, permuted))
+        I_perm = (len(diff_valid) / w_valid.sum()) * (num_perm / den)
+        permuted_Is.append(I_perm)
+
+    permuted_Is = np.array(permuted_Is)
+    p_value = np.mean(permuted_Is >= observed_I)
+    
+    return observed_I, p_value
 
 def diffusion_errors(pivot, G):
     A = nx.to_numpy_array(G, nodelist=pivot.index)
@@ -117,17 +129,28 @@ def granger_spillover(pivot, G, lag=1):
             results.append((v, u, p_reverse, "->"))
     return results
 
-def plot_morans_i(results, filename=None):
+def plot_morans_i(results, filename=None, alpha=0.05):
     plt.figure(figsize=(10, 6))
+    
     years = list(results.keys())
-    values = list(results.values())
-    plt.plot(years, values, 'o-', linewidth=2)
-    plt.axhline(y=0, color='r', linestyle='--')
-    plt.title("Moran's I Spatial Autocorrelation")
+    morans_i = [v[0] for v in results.values()]
+    p_values = [v[1] for v in results.values()]
+    
+    significant = [p < alpha for p in p_values]
+    plt.plot(years, morans_i, 'o-', linewidth=2, label="Moran's I")
+    
+    for i, (x, y, sig, p) in enumerate(zip(years, morans_i, significant, p_values)):
+        color = 'red' if sig else 'black'
+        plt.plot(x, y, 'o', color=color)
+        plt.text(x, y + 0.01, f"p={p:.3f}", ha='center', fontsize=9)
+    
+    plt.axhline(y=0, color='gray', linestyle='--')
+    plt.title("Moran's I Spatial Autocorrelation (with p-values)")
     plt.xlabel('Year')
     plt.ylabel("Moran's I")
     plt.xticks(rotation=45)
     plt.tight_layout()
+    
     if filename:
         plt.savefig(filename)
         plt.close()
@@ -216,9 +239,9 @@ def main():
     
     morans_results = {}
     for y in sorted(changes.columns)[1:]:
-        I = morans_i(changes[y].fillna(0), G)
-        morans_results[y] = I
-        print(f"Moran's I ({y}): {I:.4f}")
+        I, p = morans_i(changes[y].fillna(0), G)
+        morans_results[y] = (I, p)
+        print(f"{y} Moran's I: {I:.4f}, p-value: {p:.4f}")
     plot_morans_i(morans_results, OUTPUT_DIR / "morans_i.png")
     
     errors = diffusion_errors(pivot, G)
