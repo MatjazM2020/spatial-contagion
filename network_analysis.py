@@ -2,6 +2,15 @@ import pandas as pd
 import networkx as nx
 import numpy as np
 from pathlib import Path
+import matplotlib.pyplot as plt
+import seaborn as sns
+from statsmodels.tsa.stattools import grangercausalitytests
+import warnings
+
+plt.style.use('ggplot')
+sns.set_palette('viridis')
+OUTPUT_DIR = Path("results")
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 def load_pivot():
     df = pd.read_csv("aggregated_real_estate_volume_by_year.csv")
@@ -81,22 +90,157 @@ def first_movers(changes):
             count[mover] += 1
     return count
 
+def granger_spillover(pivot, G, lag=1):
+    results = []
+    for u, v in G.edges():
+        if u not in pivot.index or v not in pivot.index:
+            continue
+        df_edge = pivot.loc[[u, v]].T.dropna()
+        if len(df_edge) < lag + 5:
+            continue
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                gc_res = grangercausalitytests(df_edge[[v, u]], maxlag=lag, verbose=False)
+                p_forward = gc_res[lag][0]['ssr_ftest'][1]
+            except:
+                p_forward = 1.0
+            try:
+                gc_res = grangercausalitytests(df_edge[[u, v]], maxlag=lag, verbose=False)
+                p_reverse = gc_res[lag][0]['ssr_ftest'][1]
+            except:
+                p_reverse = 1.0
+
+        if p_forward < 0.05:
+            results.append((u, v, p_forward, "->"))
+        if p_reverse < 0.05:
+            results.append((v, u, p_reverse, "->"))
+    return results
+
+def plot_morans_i(results, filename=None):
+    plt.figure(figsize=(10, 6))
+    years = list(results.keys())
+    values = list(results.values())
+    plt.plot(years, values, 'o-', linewidth=2)
+    plt.axhline(y=0, color='r', linestyle='--')
+    plt.title("Moran's I Spatial Autocorrelation")
+    plt.xlabel('Year')
+    plt.ylabel("Moran's I")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    if filename:
+        plt.savefig(filename)
+        plt.close()
+    else:
+        plt.show()
+
+def plot_diffusion_errors(errors, filename=None):
+    plt.figure(figsize=(10, 6))
+    years = list(errors.keys())
+    values = list(errors.values())
+    plt.plot(years, values, 's-', linewidth=2)
+    plt.title("Diffusion Model Prediction Error")
+    plt.xlabel('Year')
+    plt.ylabel("Mean Squared Error (MSE)")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    if filename:
+        plt.savefig(filename)
+        plt.close()
+    else:
+        plt.show()
+
+def plot_leader_counts(counts, filename=None):
+    top20 = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:20]
+    communities, values = zip(*top20)
+    plt.figure(figsize=(12, 8))
+    plt.bar(communities, values)
+    plt.title("Top 20 Communities by Neighborhood Leadership Count")
+    plt.xlabel('Community')
+    plt.ylabel('Leadership Count')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    if filename:
+        plt.savefig(filename)
+        plt.close()
+    else:
+        plt.show()
+
+def plot_first_movers(counts, filename=None):
+    top20 = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:20]
+    communities, values = zip(*top20)
+    plt.figure(figsize=(12, 8))
+    plt.bar(communities, values)
+    plt.title("Top 20 First Mover Communities")
+    plt.xlabel('Community')
+    plt.ylabel('First Mover Count')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    if filename:
+        plt.savefig(filename)
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_granger_spillover(results, filename=None):
+    if not results:
+        print("No significant Granger causality relationships found.")
+        return
+    D = nx.DiGraph()
+    for u, v, p, _ in results:
+        D.add_edge(u, v, weight=-np.log10(p))
+
+    out_degrees = dict(D.out_degree())
+    sizes = [300 + out_degrees[n] * 1000 for n in D.nodes()]
+
+    pos = nx.spring_layout(D, k=0.5, seed=42)
+    plt.figure(figsize=(14, 10))
+    nx.draw_networkx_nodes(D, pos, node_size=sizes, node_color='skyblue', alpha=0.8)
+    nx.draw_networkx_edges(D, pos, arrowstyle='->', arrowsize=10, edge_color='gray', width=1)
+    nx.draw_networkx_labels(D, pos, font_size=8)
+
+    plt.title("Granger Causality Network")
+    plt.axis('off')
+    plt.tight_layout()
+    if filename:
+        plt.savefig(filename)
+        plt.close()
+    else:
+        plt.show()
+
 def main():
     pivot = load_pivot()
     G = load_graph()
     changes = compute_changes(pivot)
+    
+    morans_results = {}
     for y in sorted(changes.columns)[1:]:
         I = morans_i(changes[y].fillna(0), G)
-        print(y, I)
+        morans_results[y] = I
+        print(f"Moran's I ({y}): {I:.4f}")
+    plot_morans_i(morans_results, OUTPUT_DIR / "morans_i.png")
+    
     errors = diffusion_errors(pivot, G)
     for y, e in errors.items():
-        print("error", y, e)
+        print(f"Diffusion error ({y}): {e:.2f}")
+    plot_diffusion_errors(errors, OUTPUT_DIR / "diffusion_errors.png")
+    
     lc = leader_counts(changes, G)
-    for n, c in sorted(lc.items(), key=lambda x: x[1], reverse=True):
-        print("lead", n, c)
+    for n, c in sorted(lc.items(), key=lambda x: x[1], reverse=True)[:10]:
+        print(f"Leader: {n} ({c})")
+    plot_leader_counts(lc, OUTPUT_DIR / "leader_counts.png")
+    
     fm = first_movers(changes)
-    for n, c in sorted(fm.items(), key=lambda x: x[1], reverse=True):
-        print("first", n, c)
+    for n, c in sorted(fm.items(), key=lambda x: x[1], reverse=True)[:10]:
+        print(f"First mover: {n} ({c})")
+    plot_first_movers(fm, OUTPUT_DIR / "first_movers.png")
+    
+    lag=1
+    gc_results = granger_spillover(pivot, G, lag=lag)
+    for u, v, p, direction in gc_results:
+        print(f"Granger: {u} {direction} {v} (p={p:.4f})")
+    plot_granger_spillover(gc_results, OUTPUT_DIR / f"granger_spillover_lag_{lag}.png")
 
 if __name__ == "__main__":
     main()
