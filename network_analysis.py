@@ -12,6 +12,7 @@ plt.style.use('ggplot')
 OUTPUT_DIR = Path("results")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+
 def load_pivot():
     df = pd.read_csv("aggregated_real_estate_volume_by_year.csv")
     pivot = df.pivot(index='IME_KO', columns='YEAR', values='TOTAL_VOLUME')
@@ -35,6 +36,7 @@ def compute_changes(pivot):
         else:
             changes[y] = pivot[y] - pivot[years[i-1]]
     return changes
+
 
 def plot_cadastral_network(G, pivot):
     degree_dict = dict(G.degree())
@@ -90,6 +92,7 @@ def global_morans_i(G, changes):
         results[year] = moran
 
     return results
+
 
 def local_morans_i(G, changes, significance_level=0.05):
     w = weights.W.from_networkx(G)
