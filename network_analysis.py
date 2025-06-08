@@ -206,7 +206,7 @@ def main():
     plot_global_morans_i(global_morans, significance_level=0.05)
 
     local_morans = local_morans_i(G, changes)
-    plot_local_morans_i(local_morans, 2021, G, changes, significance_level=0.05)
+    plot_local_morans_i(local_morans, 2025, G, changes, significance_level=0.05)
 
 if __name__ == "__main__":
     main()
