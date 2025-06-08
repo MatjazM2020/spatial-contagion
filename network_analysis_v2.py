@@ -126,13 +126,14 @@ def plot_global_morans_i(global_morans, significance_level=0.05):
             plt.annotate('*', (years[i], values[i]), textcoords="offset points", xytext=(0,10), ha='center', fontsize=14, color='blue')
 
     plt.axhline(0, color='black', linewidth=0.8, linestyle='--')
-    plt.title("Global Moran's I over Years")
+    #plt.title("Global Moran's I over Years")
     plt.xlabel("Year")
     plt.ylabel("Moran's I")
     plt.xticks(years)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / "global_morans_i.png", dpi=300)
+    plt.savefig(OUTPUT_DIR / "global_morans_i.pdf", format='pdf', bbox_inches='tight')
+    #plt.savefig(OUTPUT_DIR / "global_morans_i.png", dpi=300)
     plt.close()
 
 
@@ -155,7 +156,11 @@ def plot_local_morans_i(local_morans, year, G, changes, significance_level=0.05)
 
     nx.draw_networkx_edges(G, pos, width=0.5, edge_color='gray', alpha=0.3)
 
-    nx.draw_networkx_nodes(G, pos, nodelist=node_index, node_color=node_colors, node_size=100, alpha=0.9)
+    nx.draw_networkx_nodes(G, pos,
+                           nodelist=node_index,
+                           node_color=node_colors,
+                           node_size=100,
+                           alpha=0.9)
 
     cluster_edge_colors = {1: 'red', 2: 'lightblue', 3: 'blue', 4: 'orange'}
     labels = {1: 'High-High', 2: 'Low-High', 3: 'Low-Low', 4: 'High-Low'}
@@ -164,12 +169,22 @@ def plot_local_morans_i(local_morans, year, G, changes, significance_level=0.05)
         cluster_nodes = [node_index[i] for i in range(len(node_index))
                          if cluster_labels[i] == cluster_type and sig[i]]
         if cluster_nodes:
-            nx.draw_networkx_nodes(G, pos, nodelist=cluster_nodes, node_size=120, node_color='none', 
-                                   edgecolors=cluster_edge_colors[cluster_type], linewidths=2, alpha=1, label=labels[cluster_type])
+            nx.draw_networkx_nodes(G, pos,
+                                   nodelist=cluster_nodes,
+                                   node_size=120,
+                                   node_color='none',
+                                   edgecolors=cluster_edge_colors[cluster_type],
+                                   linewidths=2,
+                                   alpha=1,
+                                   label=labels[cluster_type])
 
-    nx.draw_networkx_labels(G, pos, labels={node: node for node in G.nodes()}, font_size=7, font_color='black', alpha=0.7)
+    nx.draw_networkx_labels(G, pos,
+                            labels={node: node for node in G.nodes()},
+                            font_size=7,
+                            font_color='black',
+                            alpha=0.7)
 
-    plt.title(f"Local Moran's I Clusters for Year {year}")
+    plt.title(f"Local Moran's I Clusters for Year {year}\n(Significant at p<{significance_level})")
     plt.legend(scatterpoints=1)
     plt.axis('off')
 
@@ -179,7 +194,103 @@ def plot_local_morans_i(local_morans, year, G, changes, significance_level=0.05)
     plt.colorbar(sm, ax=ax, shrink=0.7, label='Change in volume')
 
     plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / f"local_morans_i_{year}.png", dpi=300)
+    plt.savefig(OUTPUT_DIR / "local_morans_i_{year}.pdf", format='pdf', bbox_inches='tight')
+    #plt.savefig(OUTPUT_DIR / f"local_morans_i_{year}.png", dpi=300)
+    plt.close()
+
+
+def plot_local_morans_i_all_years(local_morans, years, G, changes, significance_level=0.05):
+    cols = 3
+    rows = 1
+
+    fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 6 * rows))
+    axes = axes.flatten()
+
+    pos = nx.spring_layout(G, seed=42, k=0.1)
+
+    # Normalize across all years
+    #vmin = changes.loc[:, years].min().min()
+    #vmax = changes.loc[:, years].max().max()
+    #norm = colors.Normalize(vmin=vmin, vmax=vmax)
+    cmap = cm.viridis
+
+    cluster_edge_colors = {1: 'red', 2: 'lightblue', 3: 'blue', 4: 'orange'}
+    cluster_labels_dict = {1: 'High-High', 2: 'Low-High', 3: 'Low-Low', 4: 'High-Low'}
+
+    for idx, year in enumerate(years):
+        ax = axes[idx]
+
+        local_moran, node_index = local_morans[year]
+        sig = local_moran.p_sim < significance_level
+        cluster_labels = local_moran.q
+        
+
+        # Node values and colors
+        values = changes.loc[node_index, year]
+        vmin = changes.loc[:, year].min().min()
+        vmax = changes.loc[:, year].max().max()
+        norm = colors.Normalize(vmin=vmin, vmax=vmax)
+        node_colors = [cmap(norm(v)) for v in values]
+
+        nx.draw_networkx_edges(G, pos, width=0.5, edge_color='gray', alpha=0.3, ax=ax)
+        nx.draw_networkx_nodes(G, pos,
+                               nodelist=G.nodes(),
+                               node_color='lightgray',
+                               node_size=50,
+                               alpha=0.5,
+                               ax=ax)
+        nx.draw_networkx_nodes(G, pos,
+                               nodelist=node_index,
+                               node_color=node_colors,
+                               node_size=100,
+                               alpha=0.9,
+                               ax=ax)
+
+        for cluster_type in cluster_edge_colors:
+            cluster_nodes = [node_index[i] for i in range(len(node_index))
+                             if cluster_labels[i] == cluster_type and sig[i]]
+            if cluster_nodes:
+                nx.draw_networkx_nodes(G, pos,
+                                       nodelist=cluster_nodes,
+                                       node_size=120,
+                                       node_color='none',
+                                       edgecolors=cluster_edge_colors[cluster_type],
+                                       linewidths=2,
+                                       ax=ax)
+
+        nx.draw_networkx_labels(G, pos,
+                                labels={node: node for node in G.nodes()},
+                                font_size=6,
+                                font_color='black',
+                                alpha=0.6,
+                                ax=ax)
+
+        ax.set_title(f"Year {year}", fontsize=10)
+        ax.axis('off')
+
+    # Hide unused axes
+    for j in range(len(years), len(axes)):
+        fig.delaxes(axes[j])
+
+    # Add colorbar at bottom
+    #sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+    #sm.set_array([])
+    #cbar_ax = fig.add_axes([0.3, 0.03, 0.4, 0.02])  # adjust these values as needed
+    #cbar = fig.colorbar(sm, cax=cbar_ax, orientation='horizontal')
+    #cbar.ax.xaxis.set_label_position('top')
+    #cbar.ax.xaxis.set_ticks_position('top')
+    #cbar.set_label('Change Value')
+
+    # Add cluster legend
+    handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='none',
+                          markeredgecolor=color, markersize=10, linewidth=0,
+                          label=label) 
+               for label, color in zip(cluster_labels_dict.values(), cluster_edge_colors.values())]
+    fig.legend(handles=handles, loc='lower center', bbox_to_anchor=(0.5, 0.08), ncol=4, fontsize=9, frameon=False)
+
+    # Add main title
+    #plt.suptitle("Local Moran's I Clusters Across Years", fontsize=16)
+    plt.savefig(OUTPUT_DIR / "local_morans_i_years.pdf", format='pdf', bbox_inches='tight')
     plt.close()
 
 
@@ -194,16 +305,12 @@ def main():
     plot_cadastral_network(G, pivot)
 
     global_morans = global_morans_i(G, changes)
-    for y, m in global_morans.items():
-        print("global orans", y, m.I, m.p_sim)
     plot_global_morans_i(global_morans, significance_level=0.05)
 
     local_morans = local_morans_i(G, changes)
-    for y, (l, m) in local_morans.items():
-        print("local morans", y)
-        for i, (q, p) in enumerate(zip(l.q, l.p_sim)):
-            print(m[i], q, p)
-    plot_local_morans_i(local_morans, 2025, G, changes, significance_level=0.05)
+    #plot_local_morans_i(local_morans, 2025, G, changes, significance_level=0.05)
+    years = [2023, 2024, 2025]
+    plot_local_morans_i_all_years(local_morans, years, G, changes, significance_level=0.05)
 
 if __name__ == "__main__":
     main()
