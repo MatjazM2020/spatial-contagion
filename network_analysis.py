@@ -118,88 +118,81 @@ def plot_cadastral_network(G, pivot):
 def global_morans_i(G, changes):
     w = weights.W.from_networkx(G)
     w.transform = 'r'
-    w = weights.remap_ids(w, list(changes.index))
+    w = weights.remap_ids(w, changes.index)
     results = {}
-    for year in changes.columns[1:]:
+    years = changes.columns[1:]
+    for year in years:
         y = changes[year].dropna()
-        common = y.index.intersection(w.id_order)
-        y_sub = y.loc[common].values
-        w_sub = weights.w_subset(w, common.tolist())
-        moran = esda.Moran(y_sub, w_sub)
+        common_index = y.index.intersection(w.id_order)
+        y = y.loc[common_index]
+        w_sub = weights.w_subset(w, common_index.tolist())
+        moran = esda.Moran(y.values, w_sub)
         results[year] = moran
+
     return results
 
-def local_morans_i(G, changes, significance_level=0.05):
+def local_morans_i(G, changes):
     w = weights.W.from_networkx(G)
     w.transform = 'r'
-    w = weights.remap_ids(w, list(changes.index))
+    w = weights.remap_ids(w, changes.index)
     results = {}
-    for year in changes.columns[1:]:
+    years = changes.columns[1:]
+    for year in years:
         y = changes[year].dropna()
-        common = y.index.intersection(w.id_order)
-        y_sub = y.loc[common].values
-        w_sub = weights.w_subset(w, common.tolist())
-        local = esda.Moran_Local(y_sub, w_sub)
-        results[year] = (local, common)
+        common_index = y.index.intersection(w.id_order)
+        y = y.loc[common_index]
+        w_sub = weights.w_subset(w, common_index.tolist())
+        local_moran = esda.Moran_Local(y.values, w_sub)
+        results[year] = results[year] = (local_moran, common_index)
     return results
 
-def plot_global_morans_i(global_morans, alpha=0.05):
+def plot_global_morans_i(global_morans, significance_level=0.05):
     years = list(global_morans.keys())
-    I_vals = [global_morans[y].I for y in years]
-    p_vals = [global_morans[y].p_sim for y in years]
+    values = [global_morans[year].I for year in years]
+    p_values = [global_morans[year].p_sim for year in years]
     plt.figure(figsize=(10, 6))
-    plt.plot(years, I_vals, 'o-', linewidth=2, label="Global Moran's I")
-    for x, I, p in zip(years, I_vals, p_vals):
-        color = 'red' if p < alpha else 'black'
-        plt.plot(x, I, 'o', color=color)
-        plt.text(x, I + 0.01, f"p={p:.3f}", ha='center', fontsize=9)
-    plt.axhline(0, color='gray', linestyle='--')
-    plt.xlabel('Year')
+    plt.plot(years, values, marker='o', linestyle='-', label="Moran's I")
+    for i, p in enumerate(p_values):
+        if p < significance_level:
+            plt.annotate('*', (years[i], values[i]), textcoords="offset points", xytext=(0,10), ha='center', fontsize=14, color='blue')
+    plt.axhline(0, color='black', linewidth=0.8, linestyle='--')
+    plt.title("Global Moran's I over Years")
+    plt.xlabel("Year")
     plt.ylabel("Moran's I")
+    plt.xticks(years)
     plt.legend()
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "global_morans_i.png", dpi=300)
     plt.close()
 
-def plot_local_morans_i(local_morans, year, G, changes, alpha=0.05):
-    local, nodes = local_morans[year]
-    sig = local.p_sim < alpha
-    labels = local.q
-    values = changes.loc[nodes, year]
-    plt.figure(figsize=(12, 12))
+
+def plot_local_morans_i(local_morans, year, G, changes, significance_level=0.05):
+    local_moran, node_index = local_morans[year]
+    sig = local_moran.p_sim < significance_level
+    cluster_labels = local_moran.q
     pos = nx.spring_layout(G, seed=42, k=0.1)
-    nx.draw_networkx_edges(G, pos, alpha=0.3, edge_color='gray', width=0.5)
-    nx.draw_networkx_nodes(G, pos, node_size=50, node_color='lightgray', alpha=0.5)
-    nx.draw_networkx_nodes(
-        G, pos,
-        nodelist=nodes,
-        node_color=[cm.viridis(colors.Normalize(vmin=values.min(), vmax=values.max())(v)) for v in values],
-        node_size=100,
-        alpha=0.9
-    )
-    cluster_colors = {1:'red', 2:'lightblue', 3:'blue', 4:'orange'}
-    cluster_names = {1:'High-High', 2:'Low-High', 3:'Low-Low', 4:'High-Low'}
-    for q in cluster_colors:
-        cnodes = [nodes[i] for i in range(len(nodes)) if labels[i]==q and sig[i]]
-        if cnodes:
-            nx.draw_networkx_nodes(
-                G, pos,
-                nodelist=cnodes,
-                node_size=120,
-                node_color='none',
-                edgecolors=cluster_colors[q],
-                linewidths=2,
-                label=cluster_names[q]
-            )
-    nx.draw_networkx_labels(G, pos, font_size=7, font_color='black', alpha=0.7)
+    plt.figure(figsize=(12, 12))
+    values = changes.loc[node_index, year]
+    norm = colors.Normalize(vmin=values.min(), vmax=values.max())
+    cmap = cm.viridis
+    node_colors = [cmap(norm(v)) for v in values]
+    nx.draw_networkx_nodes(G, pos, node_color='lightgray', node_size=50, alpha=0.5)
+    nx.draw_networkx_edges(G, pos, width=0.5, edge_color='gray', alpha=0.3)
+    nx.draw_networkx_nodes(G, pos, nodelist=node_index, node_color=node_colors, node_size=100, alpha=0.9)
+    cluster_edge_colors = {1: 'red', 2: 'lightblue', 3: 'blue', 4: 'orange'}
+    labels = {1: 'High-High', 2: 'Low-High', 3: 'Low-Low', 4: 'High-Low'}
+    for cluster_type in [1, 2, 3, 4]:
+        cluster_nodes = [node_index[i] for i in range(len(node_index)) if cluster_labels[i] == cluster_type and sig[i]]
+        if cluster_nodes:
+            nx.draw_networkx_nodes(G, pos, nodelist=cluster_nodes, node_size=120, node_color='none', edgecolors=cluster_edge_colors[cluster_type], linewidths=2, alpha=1, label=labels[cluster_type])
+    nx.draw_networkx_labels(G, pos, labels={node: node for node in G.nodes()}, font_size=7, font_color='black', alpha=0.7)
+    plt.title(f"Local Moran's I Clusters for Year {year}")
     plt.legend(scatterpoints=1)
-    fig = plt.gcf()
-    ax = plt.gca()
-    sm = cm.ScalarMappable(cmap=cm.viridis, norm=colors.Normalize(vmin=values.min(), vmax=values.max()))
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax, shrink=0.7)
-    cbar.set_label('Change')
     plt.axis('off')
+    sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    ax = plt.gca()
+    plt.colorbar(sm, ax=ax, shrink=0.7, label='Change in volume')
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / f"local_morans_i_{year}.png", dpi=300)
     plt.close()
@@ -254,10 +247,10 @@ def main():
     changes = compute_changes(pivot)
     plot_cadastral_network(G, pivot)
     gmi = global_morans_i(G, changes)
-    plot_global_morans_i(gmi, alpha=0.05)
+    plot_global_morans_i(gmi)
     last_year = changes.columns[-1]
-    lmi = local_morans_i(G, changes, significance_level=0.05)
-    plot_local_morans_i(lmi, last_year, G, changes, alpha=0.05)
+    lmi = local_morans_i(G, changes)
+    plot_local_morans_i(lmi, last_year, G, changes)
     errors = diffusion_errors(pivot, G)
     plot_diffusion_errors(errors)
     lc = leader_counts(changes, G)
